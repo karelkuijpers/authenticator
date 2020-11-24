@@ -2,12 +2,14 @@
 namespace Tx\Authenticator\Hooks;
 
 use Tx\Authenticator\Auth\TokenAuthenticator;
-use TYPO3\CMS\Backend\Template\DocumentTemplate;
+use TYPO3\CMS\Backend\Template\ModuleTemplate;
+use TYPO3\CMS\Core\Page\PageRenderer;
 use TYPO3\CMS\Core\Authentication\AbstractUserAuthentication;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\PathUtility;
 use TYPO3\CMS\Fluid\View\StandaloneView;
-use TYPO3\CMS\Lang\LanguageService;
+use TYPO3\CMS\Core\Localization\LanguageService;
+use \TYPO3\CMS\Core\Configuration\ExtensionConfiguration;
 
 /**
  * Straddles into the normal backend user authentication process to display the 2-factor form.
@@ -30,7 +32,6 @@ class UserAuthHook
     public function postUserLookUp(array $params, AbstractUserAuthentication $user)
     {
         $this->user = $user;
-
         if ($this->canAuthenticate() && $this->needsAuthentication()) {
             $authenticator = GeneralUtility::makeInstance(TokenAuthenticator::class, $this->user);
             $postTokenCheck = $authenticator->verify(
@@ -87,20 +88,23 @@ class UserAuthHook
     {
         $this->initializeLanguageService();
 
-        $documentTemplate = $this->getDocumentTemplate();
+       // $documentTemplate = $this->getDocumentTemplate();
+		$moduleTemplate=GeneralUtility::makeInstance(ModuleTemplate::class);
 
-        $backendExtConf = unserialize($this->getExtConf('backend'));
-
+//        $backendExtConf = unserialize($this->getExtConf('backend'));
+        //$backendExtConf =$this->getExtConf('backend');
+	$backendExtConf = GeneralUtility::makeInstance(ExtensionConfiguration::class)->get('backend');
         if (!empty($backendExtConf['loginBackgroundImage'])) {
             $backgroundImage = $this->getUriForFileName($backendExtConf['loginBackgroundImage']);
-            $css = /** @lang CSS */
-                '@media (min-width: 768px){
+            $moduleTemplate->getPageRenderer()->addCssFile(
+            '@media (min-width: 768px){
             .typo3-login-carousel-control.right,
             .typo3-login-carousel-control.left,
             .panel-login { border: 0; }
             .typo3-login { background-image: url("' . $backgroundImage . '"); }
-            }';
-            $documentTemplate->inDocStylesArray[] = $css;
+            }');
+			
+            //$moduleTemplate->inDocStylesArray[] = $css;
         }
 
         if (!empty($backendExtConf['loginLogo'])) {
@@ -111,24 +115,25 @@ class UserAuthHook
             } else {
                 $logo = 'EXT:backend/Resources/Public/Images/typo3_orange.svg';
             }
-            $documentTemplate->inDocStylesArray[] = '.typo3-login-logo .typo3-login-image { max-width: 150px; }';
+            $moduleTemplate->getPageRenderer()->addCssFile( '.typo3-login-logo .typo3-login-image { max-width: 150px; }');
         }
         $logo = $this->getUriForFileName($logo);
 
         $highlightColor = $backendExtConf['loginHighlightColor'];
         if (!empty($highlightColor)) {
-            $documentTemplate->inDocStylesArray[] = /** @lang CSS */
-                '.btn-login.tx_authenticator_login_button,
+        	$moduleTemplate->getPageRenderer()->addCssFile('.btn-login.tx_authenticator_login_button,
             .btn-login.tx_authenticator_login_button:hover,
             .btn-login.tx_authenticator_login_button:active,
             .btn-login.tx_authenticator_login_button:active:hover,
             .btn-login.tx_authenticator_login_button:focus { background-color: ' . $highlightColor . '; }
-            .panel-login .panel-body.tx_authenticator_login_wrap { border-color: ' . $highlightColor . '; }';
+            .panel-login .panel-body.tx_authenticator_login_wrap { border-color: ' . $highlightColor . '; }');
         }
 
-        $content = $documentTemplate->startPage('TYPO3 CMS Login: ' . $this->getSiteName());
+		$moduleTemplate->getPageRenderer()->setTitle('TYPO3 CMS Login: ' . $this->getSiteName());
+        //$content = $moduleTemplate->startPage('TYPO3 CMS Login: ' . $this->getSiteName());
+		$content = $moduleTemplate->getPageRenderer()->render(PageRenderer::PART_HEADER);
         $content .= $this->renderLoginForm($token, $logo);
-        $content .= $documentTemplate->endPage();
+        //$content .= $moduleTemplate->endPage();
 
         $this->printContentAndDie($content);
     }
@@ -146,19 +151,6 @@ class UserAuthHook
         echo $content;
         // quit immediately to prevent any further rendering
         die();
-    }
-
-    /**
-     * @return DocumentTemplate
-     *
-     * @SuppressWarnings(PHPMD.Superglobals)
-     */
-    protected function getDocumentTemplate()
-    {
-        if (!isset($GLOBALS['TBE_TEMPLATE']) || !($GLOBALS['TBE_TEMPLATE'] instanceof DocumentTemplate)) {
-            $GLOBALS['TBE_TEMPLATE'] = GeneralUtility::makeInstance(DocumentTemplate::class);
-        }
-        return $GLOBALS['TBE_TEMPLATE'];
     }
 
     /**
@@ -209,18 +201,7 @@ class UserAuthHook
     {
         // Translation service is initialized too late in bootstrap
         $GLOBALS['LANG'] = GeneralUtility::makeInstance(LanguageService::class);
-        $GLOBALS['LANG']->init((TYPO3_MODE === 'BE' && isset($this->user->uc['lang'])) ? $this->user->uc['lang'] : '');
-    }
-
-    /**
-     * @param string $extKey
-     * @return string
-     *
-     * @SuppressWarnings(PHPMD.Superglobals)
-     */
-    protected function getExtConf($extKey)
-    {
-        return $GLOBALS['TYPO3_CONF_VARS']['EXT']['extConf'][$extKey];
+		if (TYPO3_MODE === 'BE' && isset($this->user->uc['lang'])) $GLOBALS['LANG']->lsng=$this->user->uc['lang'];
     }
 
     /**
